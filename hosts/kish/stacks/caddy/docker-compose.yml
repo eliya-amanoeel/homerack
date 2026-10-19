@@ -1,0 +1,27 @@
+# Reverse proxy with Caddy's internal certificate authority.
+#
+# Gives every admin UI a name and HTTPS instead of an IP and a port number,
+# so no admin password crosses the LAN in clear text.
+#
+# A local compose project in ~/stacks/caddy/ on the Pi, deployed over SSH, not
+# a Portainer stack (ADR 0012). The Caddyfile sits beside this file.
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: caddy
+    restart: unless-stopped
+    # Host networking, so Caddy can reach services bound to 127.0.0.1 (HL-33).
+    # A bridged container's 127.0.0.1 is its own loopback, not the host's, so
+    # locking services to localhost would otherwise cut Caddy off too.
+    # Side effect: 80 and 443 are bound directly on the host, no port mapping.
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # caddy_data holds the internal CA's root key and the issued certs.
+      # Losing it means a new root, and re-trusting it on every device.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

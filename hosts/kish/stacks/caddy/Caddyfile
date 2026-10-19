@@ -1,0 +1,85 @@
+# Reverse proxy for the lab's admin interfaces.
+#
+# `cert_issuer internal` makes Caddy issue certificates from its OWN
+# certificate authority instead of Let's Encrypt. No domain, no DNS challenge,
+# nothing reaches the internet. The price is that each device must trust
+# Caddy's root certificate once — see the stack README.
+#
+# It replaces `local_certs` (same issuer; Caddy refuses both together) so the
+# lifetime can be set. Leaf certificates default to 12h; overnight a browser's
+# cached cert from the day before expires, and the first visit each morning
+# fails with ERR_CERT_DATE_INVALID until a reload. 3d covers a weekend and
+# stays inside the intermediate's 7d lifetime, which it must not exceed.
+{
+	cert_issuer internal {
+		lifetime 3d
+	}
+	admin off
+}
+
+# Backends are addressed as 127.0.0.1 because this container runs with
+# network_mode: host. That is what allows the services themselves to be bound to
+# localhost only (HL-33), unreachable from the LAN, while Caddy still reaches
+# them.
+
+# Pi-hole. Its UI lives under /admin, so bare / is redirected there.
+pihole.lan {
+	redir / /admin/
+	reverse_proxy 127.0.0.1:8081
+}
+
+# Portainer. The most valuable one to encrypt: its session controls the Docker
+# socket, which is root on this host.
+portainer.lan {
+	reverse_proxy 127.0.0.1:9000
+}
+
+# Uptime Kuma. Uses websockets; Caddy proxies those without extra config.
+kuma.lan {
+	reverse_proxy 127.0.0.1:3001
+}
+
+# wg-easy.
+wg.lan {
+	reverse_proxy 127.0.0.1:51821
+}
+
+# Beszel hub. Live charts use websockets, which Caddy proxies without extra config.
+beszel.lan {
+	reverse_proxy 127.0.0.1:8090
+}
+
+# GoAccess reports (HL-99): static HTML regenerated hourly on edge, which
+# serves :8081 to this Pi only.
+goaccess.lan {
+	reverse_proxy 192.168.68.20:8081
+}
+
+# unifi. Its backend is HTTPS with a self-signed certificate, so Caddy must be
+# told not to verify it — the trust boundary is Caddy, not the browser.
+unifi.lan {
+	reverse_proxy https://127.0.0.1:8443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+# Proxmox cluster `uruk` (pve.lan until 2026-09-24). Any node serves the
+# whole cluster's UI, and login tickets are cluster-wide, so a session survives
+# switching nodes. `first` prefers anu (.10); the active health check moves
+# traffic to inanna (.11) within ~10 s of anu going down, then to enlil (.12,
+# since 2026-10-12), and back once anu returns. Until 2026-09-24 this named one
+# node only, so shutting it down took the UI name with it. Self-signed
+# backends, same as unifi. Direct :8006 on every node stays open as the
+# fallback if the Pi is down.
+uruk.lan {
+	reverse_proxy https://192.168.68.10:8006 https://192.168.68.11:8006 https://192.168.68.12:8006 {
+		lb_policy first
+		health_uri /
+		health_interval 10s
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}

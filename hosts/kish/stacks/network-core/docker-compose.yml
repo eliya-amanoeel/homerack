@@ -1,0 +1,42 @@
+# Pi-hole + Uptime Kuma.
+#
+# This file is the real one — Portainer deploys the stack from this repo
+# (HL-29), so editing it here and pushing is how the stack changes.
+#
+# ⚠️ The bind paths below are ABSOLUTE on purpose. They were once `./etc-pihole`,
+# relative to wherever Portainer kept its copy of this file. A git-backed stack
+# is cloned to a different directory each time, so a relative path would resolve
+# somewhere new and empty — Pi-hole would start with no blocklists, no local DNS
+# records and no admin password. Absolute paths also move the data out of
+# Portainer's internals, where deleting the stack could have taken it.
+services:
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:2026.07.2   # pinned: no major-version tag exists (HL-44)
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Stockholm
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      # Admin UI, localhost only (HL-33) — reach it at https://pihole.lan.
+      # NOTE: 53 above stays on all interfaces. It is the LAN's DNS.
+      - "127.0.0.1:8081:80/tcp"
+    volumes:
+      - /opt/homelab/network-core/etc-pihole:/etc/pihole
+      - /opt/homelab/network-core/etc-dnsmasq.d:/etc/dnsmasq.d
+
+  uptime-kuma:
+    container_name: uptime-kuma
+    image: louislam/uptime-kuma:1    # major-pinned; v2 is a breaking change
+    restart: unless-stopped
+    ports:
+      # Localhost only (HL-33) — reach it at https://kuma.lan
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+
+# Keep the stack named `network-core` so this resolves to the existing
+# network-core_uptime-kuma-data volume and Kuma's history survives.
+volumes:
+  uptime-kuma-data:

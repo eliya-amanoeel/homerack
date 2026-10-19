@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+*.env
+!.env.example
+*.key
+*.pem
+
+# secrets/ is ignored except its README, which explains the convention
+secrets/*
+!secrets/README.md
+
+# Service runtime data (bind mounts / volumes)
+hosts/*/stacks/*/data/
+hosts/*/stacks/*/config/
+*.db
+*.sqlite*
+
+# Backups
+*.tar.gz
+*.bak
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Discovery dumps — scratch, and they contain secrets
+*-discovery.txt
+discovery/

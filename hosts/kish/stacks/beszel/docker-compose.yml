@@ -1,0 +1,54 @@
+# Beszel — host metrics (CPU, memory, disk, temperature, S.M.A.R.T.) with
+# history and threshold alerts. Uptime Kuma answers "is it up"; this answers
+# "is it filling up or running hot" (HL-98).
+#
+# The hub, plus the agent for kish itself, which talks to it over a unix socket
+# instead of a port. anu, inanna and enlil run the agent natively and the hub
+# dials them on 45876.
+#
+# Its own stack, separate from network-core, like wireguard: monitoring changes
+# must not restart DNS.
+services:
+  beszel:
+    image: henrygd/beszel:0.20   # minor-pinned, same as the agents
+    container_name: beszel
+    restart: unless-stopped
+    environment:
+      APP_URL: https://beszel.lan
+    ports:
+      # Localhost only (HL-33) — reach it at https://beszel.lan.
+      - "127.0.0.1:8090:8090"
+    volumes:
+      # Users, systems, alert rules, metric history, and the hub's SSH key.
+      # Losing it means re-adding every agent with a new key. backup.sh reads it.
+      - beszel_data:/beszel_data
+      # Shared with the local agent, which listens on a unix socket here.
+      - beszel_socket:/beszel_socket
+    healthcheck:
+      test: ["CMD", "/beszel", "health", "--url", "http://localhost:8090"]
+      interval: 120s
+      timeout: 5s
+      start_period: 10s
+
+  beszel-agent:
+    image: henrygd/beszel-agent:0.20
+    container_name: beszel-agent
+    restart: unless-stopped
+    # Host networking so it reports the Pi's interfaces, not a bridge's.
+    network_mode: host
+    # No Docker socket, deliberately: it would add per-container stats but is
+    # root on this host. Host CPU, memory, disk and temperature don't need it.
+    volumes:
+      - beszel_agent_data:/var/lib/beszel-agent
+      - beszel_socket:/beszel_socket
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      # The hub's public key — not a secret. It lives in beszel_data, so it
+      # survives a restore; a hub rebuilt from scratch makes a new one, and this
+      # line and the node agents need the new key.
+      KEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILO87SCRiN704wT8nSoQo4UmfbaUeYi7R3oVdPKsp5oX"
+
+volumes:
+  beszel_data:
+  beszel_socket:
+  beszel_agent_data:

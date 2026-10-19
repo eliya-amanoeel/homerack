@@ -1,0 +1,35 @@
+# Public IPs and domains the export may contain. A domain allows its subdomains.
+# Add a line only after checking the value is meant to be public.
+1.1.1.1
+1.0.0.1
+8.8.8.8
+8.8.4.4
+# Example and lookup targets in the DNS ADRs: One.com's default record, a Google address
+46.30.211.38
+216.58.201.206
+# Own site
+amaeli.se
+# Old NAS DDNS names: deleted, resolve to nothing (checked 2026-10-19)
+nergal.synology.me
+enkiducloud.synology.me
+# Vendors, package sources, documentation and links
+claude.com
+github.com
+ghcr.io
+dl.cloudsmith.io
+get.docker.com
+packages.microsoft.com
+pve.proxmox.com
+get.beszel.dev
+healthchecks.io
+uptimerobot.com
+discovery.meethue.com
+myip.opendns.com
+ipv4.download.thinkbroadband.com
+community.tp-link.com
+community.cloudflare.com
+www.omadanetworks.com
+www.reddit.com
+bex.co
+doubleclick.net
+example.com

@@ -1,0 +1,90 @@
+# WireGuard VPN with a web UI for issuing client configs.
+#
+# v15. Unlike v14 there are no config env vars — the admin account, DNS and
+# allowed IPs are all set through the web UI on first run.
+#
+# THE ENTRYPOINT OVERRIDE IS LOAD-BEARING. This host's kernel
+# (Raspberry Pi rpt-rpi-v8, Debian 13) ships no legacy netfilter modules at all, only
+# nftables. The image contains both iptables backends but points
+# /etc/alternatives/iptables at the LEGACY one, so wg-quick fails with
+#     can't initialize iptables table `nat': Table does not exist
+# and the container crash-loops. Repointing the six alternatives at the nft
+# binaries fixes it. Doing this in the entrypoint rather than by hand means it
+# survives `docker compose up` recreating the container.
+#
+# Deploy as its own stack, separate from network-core — the way in should not
+# restart when you touch DNS or monitoring.
+volumes:
+  etc_wireguard:
+
+services:
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+    restart: unless-stopped
+    # INSECURE removed 2026-09-07 (HL-68). https://wg.lan now fronts this via
+    # Caddy, so password login should be allowed on the strength of Caddy's
+    # X-Forwarded-Proto header rather than a flag.
+    #
+    # ⚠️ If the login page refuses with "You can't log in with an insecure
+    # connection", wg-easy is NOT honouring that header. Put the line back:
+    #     environment:
+    #       - INSECURE=true
+    # and redeploy. Without it the admin UI is unreachable by every route,
+    # including the direct port. The VPN tunnel itself is unaffected either way.
+    # Point iptables at the nft backend, then hand off to the image's own
+    # entrypoint and command (docker-entrypoint.sh + dumb-init node server).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        for b in iptables ip6tables; do
+          ln -sf /usr/sbin/$$b-nft         /etc/alternatives/$$b
+          ln -sf /usr/sbin/$$b-nft-restore /etc/alternatives/$$b-restore
+          ln -sf /usr/sbin/$$b-nft-save    /etc/alternatives/$$b-save
+        done
+        exec docker-entrypoint.sh /usr/bin/dumb-init node server/index.mjs
+    networks:
+      wg:
+        ipv4_address: 10.42.42.42
+        ipv6_address: fdcc:ad94:bacf:61a3::2a
+    volumes:
+      - etc_wireguard:/etc/wireguard
+      - /lib/modules:/lib/modules:ro   # so the container can see the host's wireguard module
+    ports:
+      - "51820:51820/udp"              # the only port forwarded from the internet
+      # Admin UI, localhost only (HL-33) — reach it at https://wg.lan.
+      # NOTE: 51820/udp above must stay on all interfaces; it is the tunnel.
+      - "127.0.0.1:51821:51821/tcp"
+    # The image's own healthcheck only proves the web UI answers. This one
+    # proves the TUNNEL exists — which is what the entrypoint override above is
+    # for, and what would break silently if an image update moved
+    # /etc/alternatives or renamed the entrypoint. A broken override then shows
+    # as an unhealthy container instead of a VPN that quietly accepts no one.
+    healthcheck:
+      test: ["CMD-SHELL", "wg show wg0 >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
+
+# Container-internal network only. The IPv6 block is upstream's default and is
+# harmless on this LAN, which has no IPv6 at all — it never leaves the host.
+networks:
+  wg:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.42.42.0/24
+        - subnet: fdcc:ad94:bacf:61a3::/64

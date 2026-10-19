@@ -1,0 +1,28 @@
+# Reconstructed from `docker inspect` on 2026-09-04.
+# Ports 8000 (edge agent) and 9443 (HTTPS UI) are exposed by the image but not
+# published on the host; only 9000 is reachable.
+services:
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:lts
+    restart: always
+    # Portainer must NOT depend on Pi-hole for DNS. Docker's embedded resolver
+    # (127.0.0.11) forwards to the host's nameserver, which is Pi-hole itself —
+    # so with the network-core stack down, Portainer could not resolve
+    # github.com to clone this repo, exactly when it needed to redeploy the
+    # stack that would bring DNS back. Pi-hole first so internal names still
+    # work, public resolver second so a Pi-hole outage cannot strand it.
+    dns:
+      - 192.168.68.71
+      - 1.1.1.1
+    ports:
+      # Localhost only (HL-33). Caddy runs with network_mode: host and reaches
+      # it here; nothing else on the LAN can. Use https://portainer.lan.
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  portainer_data:
+    external: true

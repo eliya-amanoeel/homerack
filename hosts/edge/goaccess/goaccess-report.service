@@ -1,0 +1,16 @@
+# /etc/systemd/system/goaccess-report.service (HL-99)
+[Unit]
+Description=GoAccess report per site from Caddy's access logs
+
+[Service]
+Type=oneshot
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/goaccess-report
+# Creates /var/lib/goaccess owned by caddy; everything else is read-only.
+StateDirectory=goaccess
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+Nice=10

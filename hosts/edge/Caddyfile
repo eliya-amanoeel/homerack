@@ -1,0 +1,62 @@
+# edge (VM 100, 192.168.68.20): the only guest facing the internet (ADR 0008).
+# Router forwards 80/443 here. Caddy obtains Let's Encrypt certificates itself.
+# Deployed by hand: copy to /etc/caddy/Caddyfile, validate, reload. Validate as
+# the caddy user (sudo -u caddy caddy validate ...): as root it creates the
+# access logs root-owned, and the reload then fails. Command in hosts/inanna/README.md.
+
+# Access log per site, read by GoAccess (HL-99). Visitor IPs are shortened as
+# they are written (IPv4 to /24, IPv6 to /48), so no full address is stored.
+(access_log) {
+	log {
+		output file /var/log/caddy/{args[0]}.log {
+			roll_size 50MiB
+			roll_keep 20
+			roll_keep_for 2160h
+		}
+		format filter {
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+		}
+	}
+}
+
+# amaeli: migrated to Proxmox (LXC 101).
+amaeli.se {
+	import access_log amaeli
+	reverse_proxy 192.168.68.21:80
+}
+
+# www is a CNAME to amaeli.se at One.com; one canonical address, as the site's
+# og:url and sitemap already say.
+www.amaeli.se {
+	redir https://amaeli.se{uri} permanent
+}
+
+# site-a: migrated to Proxmox (LXC 102), including the contact form service.
+site-a.example {
+	import access_log site-a
+	reverse_proxy 192.168.68.22:80
+}
+
+# www is a CNAME to site-a.example at One.com (HL-101); one canonical address.
+www.site-a.example {
+	redir https://site-a.example{uri} permanent
+}
+
+# SiteB: migrated to Proxmox (LXC 103 app, LXC 104 PostgreSQL).
+app.site-b.example {
+	import access_log site-b
+	reverse_proxy 192.168.68.23:80
+}
+
+# GoAccess reports (HL-99), for kish's Caddy only, which publishes goaccess.lan.
+# Not public: the router forwards only 80/443, and the guest firewall allows
+# :8081 from kish alone.
+http://:8081 {
+	@kish remote_ip 192.168.68.71
+	handle @kish {
+		root * /var/lib/goaccess/html
+		file_server
+	}
+	respond 403
+}

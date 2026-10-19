@@ -1,0 +1,96 @@
+#!/bin/sh
+# One GoAccess report per site from Caddy's access logs (HL-99).
+# Installed as /usr/local/bin/goaccess-report; run hourly by
+# goaccess-report.timer as the caddy user. History is kept in GoAccess's own
+# database, so reports outlive the 90 days of logs Caddy keeps.
+set -eu
+
+state=/var/lib/goaccess
+html="$state/html"
+mkdir -p "$html"
+
+# site  domain — the site name is also the log and report file name.
+sites="amaeli:amaeli.se site-a:site-a.example site-b:app.site-b.example"
+
+# Reads one field from a GoAccess JSON report's "general" block (the first match).
+field() {
+	grep -o -m1 "\"$2\": *\(\"[^\"]*\"\|[0-9]*\)" "$1" | head -1 | sed 's/.*: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/'
+}
+
+cards=""
+for entry in $sites; do
+	site=${entry%%:*}
+	domain=${entry#*:}
+	mkdir -p "$state/db/$site"
+	# LAN traffic (own visits, Uptime Kuma) and known crawlers are left out.
+	goaccess "/var/log/caddy/$site.log" \
+		--log-format=CADDY \
+		--exclude-ip=192.168.68.0-192.168.71.255 \
+		--ignore-crawlers \
+		--persist --restore --db-path="$state/db/$site" \
+		--html-report-title="$domain" \
+		--output="$html/$site.html" \
+		--output="$html/$site.json"
+
+	json="$html/$site.json"
+	start=$(field "$json" start_date)
+	period="$start – $(field "$json" end_date)"
+	[ -n "$start" ] || period="No visits yet"
+	cards="$cards
+<a class=\"card\" href=\"$site.html\">
+<h2>$domain</h2>
+<dl>
+<div><dt>Visitors</dt><dd>$(field "$json" unique_visitors)</dd></div>
+<div><dt>Requests</dt><dd>$(field "$json" valid_requests)</dd></div>
+</dl>
+<p>$period</p>
+</a>"
+done
+
+# The index borrows GoAccess's own icon from a report, so it matches them.
+icon=$(grep -o -m1 "<link rel='icon'[^>]*>" "$html/amaeli.html" || true)
+
+cat > "$html/index.html.new" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Site statistics</title>
+$icon
+<style>
+:root { --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280; --line: #e3e6eb; --accent: #2f6fde; }
+@media (prefers-color-scheme: dark) {
+	:root { --bg: #14171c; --card: #1d2128; --text: #e8eaee; --muted: #9aa1ad; --line: #2c313a; --accent: #7aa7ff; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 48px 16px; }
+header { margin-bottom: 32px; }
+h1 { margin: 0; font-size: 28px; font-weight: 650; }
+header p { margin: 4px 0 0; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.card { display: block; padding: 20px 24px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+dl { display: flex; gap: 32px; margin: 0; }
+dt { color: var(--muted); font-size: 13px; }
+dd { margin: 0; font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.card p { margin: 16px 0 0; color: var(--muted); font-size: 13px; }
+footer { margin-top: 32px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Site statistics</h1>
+<p>Updated $(date '+%Y-%m-%d %H:%M') · refreshed hourly</p>
+</header>
+<div class="grid">$cards
+</div>
+<footer>From Caddy's access logs on edge. LAN traffic and known crawlers are excluded; visitor IPs are shortened.</footer>
+</main>
+</body>
+</html>
+EOF
+mv "$html/index.html.new" "$html/index.html"

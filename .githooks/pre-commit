@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Refuse commits that would leak credentials, or break the docs.
+#   1. anything staged under secrets/ (except its README)
+#   2. staged content that looks like a private key or a password assignment
+#   3. scripts/check-docs.sh (backlog ids, links)
+#
+# Bypass deliberately with:  git commit --no-verify
+set -uo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail=0
+say() { printf '\033[31mpre-commit: %s\033[0m\n' "$1" >&2; }
+
+# 1. secrets/ directory
+while IFS= read -r f; do
+  case "$f" in
+    secrets/README.md) ;;
+    secrets/*) say "refusing to commit '$f' — secrets/ must stay untracked"; fail=1 ;;
+  esac
+done <<< "$staged"
+
+# 2. content patterns, skipping this hook and the docs that describe them.
+#    Placeholders are filtered per line, and a hit that survives the filter
+#    blocks the commit: a placeholder elsewhere in the file excuses nothing.
+#    -I skips binary files.
+for f in $staged; do
+  case "$f" in
+    .githooks/*|secrets/README.md|*.example|*.example.*) continue ;;
+  esac
+  hits=$(git show ":$f" 2>/dev/null | grep -nIEi \
+      -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
+      -e '^[^#]*(password|passwd|secret|api_?key|token)[[:space:]]*[:=][[:space:]]*["'"'"']?[^"'"'"'[:space:]{$<]{8,}' \
+    | grep -viE 'REDACTED|changeme|TODO|placeholder|example|<[a-z-]+>|\$\{')
+  if [ -n "$hits" ]; then
+    while IFS= read -r hit; do
+      say "possible secret in '$f': ${hit%%:*}: $(echo "$hit" | cut -d: -f2- | cut -c1-60)"
+    done <<< "$hits"
+    fail=1
+  fi
+done
+
+# 3. documentation consistency (backlog ids, links)
+if [ -x scripts/check-docs.sh ]; then
+  scripts/check-docs.sh > /tmp/.check-docs.$$ 2>&1 || { cat /tmp/.check-docs.$$ >&2; fail=1; }
+  rm -f /tmp/.check-docs.$$
+fi
+
+if [ "$fail" -ne 0 ]; then
+  say "commit blocked. Fix the above, or bypass with --no-verify if it's a false positive."
+  exit 1
+fi
+exit 0

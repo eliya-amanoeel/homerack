@@ -1,0 +1,10 @@
+# /etc/systemd/system/goaccess-report.timer (HL-99)
+[Unit]
+Description=Hourly GoAccess reports
+
+[Timer]
+OnCalendar=*-*-* *:05
+Persistent=true
+
+[Install]
+WantedBy=timers.target
